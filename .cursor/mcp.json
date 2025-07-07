@@ -3,6 +3,13 @@
       "shadcn-ui-server": {
         "command": "npx",
         "args": ["@heilgar/shadcn-ui-mcp-server"]
-      }
+      },
+      "TalkToFigma": {
+      "command": "bunx",
+      "args": [
+        "cursor-talk-to-figma-mcp@latest",
+        "--server=vps.sonnylab.com"
+      ]
+    }
     }
   }

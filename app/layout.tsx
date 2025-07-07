@@ -3,6 +3,10 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { StagewiseToolbar } from "@stagewise/toolbar-next";
 import { ReactPlugin } from "@stagewise-plugins/react";
+import { ThemeProvider } from "next-themes";
+import { createClient } from '@supabase/supabase-js';
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { BackButton } from "@/components/ui/BackButton";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,6 +17,10 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -25,12 +33,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <StagewiseToolbar config={{ plugins: [ReactPlugin] }} />
-        {children}
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <div className="w-full flex justify-between items-center p-4 bg-background/80 border-b backdrop-blur sticky top-0 z-50">
+            <div className="flex gap-2 items-center">
+              <BackButton />
+            </div>
+            <div className="flex gap-2 items-center">
+              <ThemeToggle />
+            </div>
+          </div>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

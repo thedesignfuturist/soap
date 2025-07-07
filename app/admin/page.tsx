@@ -2,14 +2,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export const dynamic = "force-dynamic";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, ChangeEvent, useRef } from "react";
 import { createClient } from '@supabase/supabase-js';
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell, TableCaption
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction
@@ -18,8 +18,17 @@ import { fetchImages, addImage, updateImage, deleteImage, fetchImageDetails, add
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-
-const ADMIN_PASSWORD = "changeme123"; // 원하는 비밀번호로 변경
+import { Card } from "@/components/ui/card";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
+import Editor from "@/components/admin/Editor";
+import { Trash2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { format } from "date-fns";
+import { CalendarIcon } from "lucide-react";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 // 타입 정의 추가
 interface ImageRow {
@@ -32,11 +41,15 @@ interface ImageRow {
   created_at: string;
 }
 
+function getErrorMessage(error: unknown) {
+  if (!error) return "Unknown error";
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && "message" in error) return (error as any).message;
+  return JSON.stringify(error);
+}
+
 export default function AdminPage() {
-  const [isClient, setIsClient] = useState(false);
-  const [authed, setAuthed] = useState(false);
-  const [pw, setPw] = useState("");
-  const [pwError, setPwError] = useState("");
   const [images, setImages] = useState<ImageRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -49,10 +62,21 @@ export default function AdminPage() {
   const [mainImageUrls, setMainImageUrls] = useState<{ [id: string]: string }>({});
   // 상세 이미지 URL을 관리하는 state 추가
   const [detailImageUrls, setDetailImageUrls] = useState<{ [id: string]: string }>({});
-
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
+  const [newsletters, setNewsletters] = useState<any[]>([]);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editTag, setEditTag] = useState("");
+  const [editAuthor, setEditAuthor] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editThumbnail, setEditThumbnail] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [editDateObj, setEditDateObj] = useState<Date | undefined>(editDate ? new Date(editDate) : new Date());
+  const [page, setPage] = useState(1);
+  const pageSize = 5;
+  const totalPages = Math.ceil(newsletters.length / pageSize);
+  const pagedNewsletters = newsletters.slice((page - 1) * pageSize, page * pageSize);
 
   const getImageUrl = useCallback((file_name: string) => {
     if (!file_name) return "";
@@ -91,6 +115,23 @@ export default function AdminPage() {
     loadImages(supabase);
   }, []);
 
+  const fetchNewsletters = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase.from("newsletters").select("*").order("date", { ascending: false });
+    if (error) {
+      alert('에러: ' + getErrorMessage(error));
+      console.error('에러:', error);
+      setLoading(false);
+      return;
+    }
+    setNewsletters(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchNewsletters();
+  }, [fetchNewsletters]);
+
   // 목록 불러오기
   async function loadImages(supabase: any) {
     setLoading(true);
@@ -103,39 +144,6 @@ export default function AdminPage() {
   async function loadDetailImages(supabase: any, image_id: string) {
     const data = await fetchImageDetails(supabase, image_id);
     setDetailImages(data);
-  }
-
-  // SSR에서는 항상 <div></div>만 반환
-  if (!isClient) return <div></div>;
-
-  // 조건부 렌더링 (훅 선언 이후에만)
-  if (!authed) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen">
-        <h2 className="mb-4 text-xl font-bold">관리자 비밀번호 입력</h2>
-        <Input
-          type="password"
-          value={pw}
-          onChange={e => setPw(e.target.value)}
-          className="mb-2 w-64"
-          placeholder="비밀번호"
-        />
-        <Button
-          className="w-64"
-          onClick={() => {
-            if (pw === ADMIN_PASSWORD) {
-              setAuthed(true);
-              setPwError("");
-            } else {
-              setPwError("비밀번호가 틀렸습니다.");
-            }
-          }}
-        >
-          확인
-        </Button>
-        {pwError && <div className="text-red-500 mt-2">{pwError}</div>}
-      </div>
-    );
   }
 
   // 등록/수정 모달 열기
@@ -201,8 +209,8 @@ export default function AdminPage() {
       setForm({ name: "", description: "", date: "", category: "", file: null });
       setDetailFiles([]);
       loadImages(supabase);
-    } catch (error: any) {
-      alert('에러: ' + (error?.message || JSON.stringify(error)));
+    } catch (error) {
+      alert('에러: ' + getErrorMessage(error));
       console.error('에러:', error);
     }
     setLoading(false);
@@ -220,8 +228,8 @@ export default function AdminPage() {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       ));
-    } catch (error: any) {
-      alert('에러: ' + (error?.message || JSON.stringify(error)));
+    } catch (error) {
+      alert('에러: ' + getErrorMessage(error));
       console.error('에러:', error);
     }
     setLoading(false);
@@ -240,8 +248,8 @@ export default function AdminPage() {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       ), editTarget.id);
-    } catch (error: any) {
-      alert('에러: ' + (error?.message || JSON.stringify(error)));
+    } catch (error) {
+      alert('에러: ' + getErrorMessage(error));
       console.error('에러:', error);
     }
     setLoading(false);
@@ -287,187 +295,231 @@ export default function AdminPage() {
     setDetailFiles(prev => prev.filter(f => f.file !== df.file));
   }
 
+  const handleEditOpen = (item: any) => {
+    setEditId(item.id);
+    setEditTitle(item.title);
+    setEditContent(item.content);
+    setEditTag(item.tag);
+    setEditAuthor(item.author);
+    setEditDate(item.date);
+    setEditThumbnail(item.thumbnail);
+    setEditOpen(true);
+  };
+
+  const handleUpdate = async () => {
+    if (!editId) return;
+    setLoading(true);
+    const { error } = await supabase.from("newsletters").update({
+      title: editTitle,
+      content: editContent,
+      tag: editTag,
+      author: editAuthor,
+      date: editDate,
+      thumbnail: editThumbnail,
+    }).eq("id", editId);
+    setLoading(false);
+    setEditOpen(false);
+    if (error) {
+      alert('에러: ' + getErrorMessage(error));
+      console.error('에러:', error);
+    } else fetchNewsletters();
+  };
+
+  const handleDeleteNewsletter = async (id: string) => {
+    setLoading(true);
+    const { error } = await supabase.from("newsletters").delete().eq("id", id);
+    setLoading(false);
+    if (error) {
+      alert('에러: ' + getErrorMessage(error));
+      console.error('에러:', error);
+    } else fetchNewsletters();
+  };
+
+  const handleThumbnailUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}.${fileExt}`;
+    const { data, error } = await supabase.storage.from('thumbnails').upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+    if (error) {
+      alert('썸네일 업로드 실패: ' + getErrorMessage(error));
+      setLoading(false);
+      return;
+    }
+    const { data: publicUrlData } = supabase.storage.from('thumbnails').getPublicUrl(fileName);
+    setEditThumbnail(publicUrlData?.publicUrl || '');
+    setLoading(false);
+  };
+
+  const handleDeleteEditThumbnail = async () => {
+    if (!editThumbnail) return;
+    const fileName = editThumbnail.split('/').pop();
+    await supabase.storage.from('thumbnails').remove([fileName]);
+    setEditThumbnail("");
+  };
+
+  useEffect(() => {
+    setEditDateObj(editDate ? new Date(editDate) : new Date());
+  }, [editDate]);
+
   return (
-    <div className="p-8 max-w-5xl mx-auto">
-      <h1 className="font-bold text-2xl mb-6">이미지 CMS</h1>
-      <div className="mb-6 flex justify-end">
-        <Button onClick={() => openModal()}>이미지 등록</Button>
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* 헤더 우측 상단에 다크모드 토글 */}
+      <div className="w-full flex justify-end p-4">
+        <ThemeToggle />
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>대표 이미지</TableHead>
-            <TableHead>이름</TableHead>
-            <TableHead>상세설명</TableHead>
-            <TableHead>날짜</TableHead>
-            <TableHead>카테고리</TableHead>
-            <TableHead>상세 이미지</TableHead>
-            <TableHead>액션</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {images.length === 0 && (
-            <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground">이미지가 없습니다.</TableCell>
-            </TableRow>
-          )}
-          {images.map((img) => (
-            <TableRow key={img.id}>
-              <TableCell>
-                {img.file_name && mainImageUrls[img.id] && (
-                  <img src={mainImageUrls[img.id]} alt={img.name} className="w-16 h-16 object-cover rounded" />
-                )}
-              </TableCell>
-              <TableCell>{img.name}</TableCell>
-              <TableCell>{img.description}</TableCell>
-              <TableCell>{img.date}</TableCell>
-              <TableCell>{img.category}</TableCell>
-              <TableCell>
-                <Button size="sm" variant="outline" onClick={() => { loadDetailImages(createClient(
-                  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-                  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-                ), img.id); openModal(img); }}>
-                  상세 보기
-                </Button>
-              </TableCell>
-              <TableCell>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => openModal(img)}>수정</Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="destructive" size="sm">삭제</Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>정말 삭제하시겠습니까?</AlertDialogTitle>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel asChild>
-                          <Button variant="outline">취소</Button>
-                        </AlertDialogCancel>
-                        <AlertDialogAction asChild>
-                          <Button variant="destructive" onClick={() => handleDelete(img)}>
-                            삭제
-                          </Button>
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-        <TableCaption>이미지와 상세 이미지를 자유롭게 관리할 수 있습니다.</TableCaption>
-      </Table>
-      {/* 등록/수정 모달 */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editTarget ? "이미지 수정" : "이미지 등록"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Label htmlFor="name">이름</Label>
-            <Input
-              id="name"
-              type="text"
-              placeholder="이름"
-              value={form.name}
-              onChange={e => setForm((f: any) => ({ ...f, name: e.target.value }))}
-            />
-            <Label htmlFor="description">상세설명</Label>
-            <Textarea
-              id="description"
-              placeholder="상세설명"
-              value={form.description}
-              onChange={e => setForm((f: any) => ({ ...f, description: e.target.value }))}
-            />
-            <Label htmlFor="date">날짜</Label>
-            <Input
-              id="date"
-              type="date"
-              value={form.date}
-              onChange={e => setForm((f: any) => ({ ...f, date: e.target.value }))}
-            />
-            <Label htmlFor="category">카테고리</Label>
-            <Input
-              id="category"
-              type="text"
-              placeholder="카테고리"
-              value={form.category}
-              onChange={e => setForm((f: any) => ({ ...f, category: e.target.value }))}
-            />
-            <div>
-              <Label htmlFor="main-image">대표 이미지</Label>
-              <Input
-                id="main-image"
-                type="file"
-                accept="image/*"
-                onChange={e => setForm((f: any) => ({ ...f, file: e.target.files?.[0] }))}
-              />
-              {editTarget?.file_name && mainImageUrls[editTarget.id] && (
-                <img src={mainImageUrls[editTarget.id]} alt="대표" className="w-16 h-16 mt-2 object-cover rounded" />
-              )}
-            </div>
-            <div>
-              <Label htmlFor="detail-images">상세 이미지 (여러 장)</Label>
-              <input
-                id="detail-images"
-                type="file"
-                accept="image/*"
-                multiple
-                style={{ display: 'none' }}
-                onChange={e => handleDetailFilesChange(e.target.files)}
-              />
-              <div className="flex flex-wrap gap-2 mt-2">
-                {detailImages.map((d) => (
-                  <div key={d.id} className="relative group">
-                    {detailImageUrls[d.id] && (
-                      <img src={detailImageUrls[d.id]} alt="상세" className="w-16 h-16 object-cover rounded" />
-                    )}
-                    <Button size="sm" variant="destructive" className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 transition" onClick={() => handleDeleteDetail(d.id)}>×</Button>
-                  </div>
-                ))}
-                {detailFiles.map((df, i) => (
-                  <div key={i} className="relative group">
-                    {df.status === 'uploading' && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
-                        <div className="w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-                      </div>
-                    )}
-                    <img src={df.url || URL.createObjectURL(df.file)} alt="미리보기" className="w-16 h-16 object-cover rounded" />
-                    {df.status === 'done' && (
-                      <button
-                        className="absolute top-1 right-1 bg-white/80 rounded-full p-1 text-red-500 opacity-0 group-hover:opacity-100 transition"
-                        onClick={() => handleDeleteUploadedImage(df)}
-                        tabIndex={0}
-                        aria-label="이미지 삭제"
-                      >×</button>
-                    )}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className="w-16 h-16 flex items-center justify-center border-2 border-dashed border-gray-300 rounded text-3xl text-gray-400 hover:bg-gray-100 transition"
-                  onClick={() => document.getElementById('detail-images')?.click()}
-                  tabIndex={0}
-                  aria-label="이미지 추가"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button onClick={handleSave} disabled={loading}>
-              {loading ? "저장 중..." : "저장"}
+      <main className="min-h-screen flex flex-col items-center py-12 bg-background">
+        <div className="w-full max-w-2xl flex flex-col gap-6">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-2xl font-bold">뉴스레터 관리</h1>
+            <Button asChild>
+              <Link href="/admin/new">새 글 작성</Link>
             </Button>
-            <DialogClose asChild>
-              <Button variant="outline">취소</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+          {loading ? (
+            <div>로딩 중...</div>
+          ) : newsletters.length === 0 ? (
+            <div>등록된 뉴스레터가 없습니다.</div>
+          ) :
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>제목</TableHead>
+                    <TableHead>작성자</TableHead>
+                    <TableHead>태그</TableHead>
+                    <TableHead>날짜</TableHead>
+                    <TableHead>액션</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pagedNewsletters.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell>{item.title}</TableCell>
+                      <TableCell>{item.author}</TableCell>
+                      <TableCell>{item.tag}</TableCell>
+                      <TableCell>{item.date}</TableCell>
+                      <TableCell>
+                        {/* 수정 버튼 */}
+                        <Dialog open={editOpen && editId === item.id} onOpenChange={setEditOpen}>
+                          <DialogTrigger asChild>
+                            <Button variant="outline" size="sm" onClick={() => handleEditOpen(item)}>수정</Button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <DialogHeader>
+                              <DialogTitle>뉴스레터 수정</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-2">
+                              <Label>제목</Label>
+                              <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} />
+                              <Label>본문</Label>
+                              <Editor value={editContent} onChange={setEditContent} />
+                              <Label>태그</Label>
+                              <Input value={editTag} onChange={e => setEditTag(e.target.value)} />
+                              <Label>작성자</Label>
+                              <Input value={editAuthor} onChange={e => setEditAuthor(e.target.value)} />
+                              <Label>썸네일</Label>
+                              <div className="flex items-center gap-2">
+                                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                                  썸네일 업로드
+                                </Button>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  ref={fileInputRef}
+                                  style={{ display: "none" }}
+                                  onChange={handleThumbnailUpload}
+                                />
+                              </div>
+                              {editThumbnail && (
+                                <div className="flex items-center gap-2 mt-2">
+                                  <img src={editThumbnail} alt="썸네일 미리보기" className="w-32 h-24 object-cover rounded border" />
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={handleDeleteEditThumbnail}
+                                    aria-label="썸네일 삭제"
+                                  >
+                                    <Trash2 className="w-5 h-5 text-destructive" />
+                                  </Button>
+                                </div>
+                              )}
+                              <Label>날짜</Label>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    className={cn(
+                                      "w-full justify-start text-left font-normal",
+                                      !editDateObj && "text-muted-foreground"
+                                    )}
+                                  >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {editDateObj ? format(editDateObj, "yyyy-MM-dd") : <span>날짜 선택</span>}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0">
+                                  <Calendar
+                                    mode="single"
+                                    selected={editDateObj}
+                                    onSelect={d => {
+                                      setEditDateObj(d);
+                                      setEditDate(d ? d.toISOString().slice(0, 10) : "");
+                                    }}
+                                    initialFocus
+                                  />
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <DialogFooter>
+                              <Button onClick={handleUpdate}>저장</Button>
+                              <DialogClose asChild>
+                                <Button variant="outline">취소</Button>
+                              </DialogClose>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
+                        {/* 삭제 버튼 */}
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="sm" className="ml-2">삭제</Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>정말 삭제하시겠습니까?</AlertDialogTitle>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>취소</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteNewsletter(item.id)}>삭제</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {/* 페이지네이션 */}
+              <div className="flex justify-center gap-2 mt-6">
+                {Array.from({ length: totalPages }, (_, i) => (
+                  <Button
+                    key={i}
+                    variant={page === i + 1 ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setPage(i + 1)}
+                  >
+                    {i + 1}
+                  </Button>
+                ))}
+              </div>
+            </>
+          }
+        </div>
+      </main>
     </div>
   );
 } 
